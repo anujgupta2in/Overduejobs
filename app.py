@@ -172,7 +172,8 @@ if uploaded_files:
             file_analysis_map[file_name] = {
                 'Overdue Jobs': file_result['overdue_jobs_count'],
                 'Critical Overdue': file_result['critical_overdue_jobs_count'],
-                'Overdue %': f"{file_result['overdue_jobs_percentage']}%"
+                'Overdue %': f"{file_result['overdue_jobs_percentage']}%",
+                'Critical %': f"{file_result['critical_overdue_jobs_percentage']}%"
             }
         
         # Extract just the filename part for easier matching
@@ -189,6 +190,7 @@ if uploaded_files:
         overdue_jobs = []
         critical_overdue = []
         overdue_pct = []
+        critical_pct = []
         
         for _, row in job_status_table.iterrows():
             file_name = row['File Name']
@@ -199,11 +201,13 @@ if uploaded_files:
                 overdue_jobs.append(simplified_map[file_name]['Overdue Jobs'])
                 critical_overdue.append(simplified_map[file_name]['Critical Overdue'])
                 overdue_pct.append(simplified_map[file_name]['Overdue %'])
+                critical_pct.append(simplified_map[file_name]['Critical %'])
             # Try with just the filename
             elif simple_name in simplified_map:
                 overdue_jobs.append(simplified_map[simple_name]['Overdue Jobs'])
                 critical_overdue.append(simplified_map[simple_name]['Critical Overdue'])
                 overdue_pct.append(simplified_map[simple_name]['Overdue %'])
+                critical_pct.append(simplified_map[simple_name]['Critical %'])
             else:
                 # Try partial matching as a last resort
                 matched = False
@@ -213,6 +217,7 @@ if uploaded_files:
                         overdue_jobs.append(file_analysis_map[analysis_file]['Overdue Jobs'])
                         critical_overdue.append(file_analysis_map[analysis_file]['Critical Overdue'])
                         overdue_pct.append(file_analysis_map[analysis_file]['Overdue %'])
+                        critical_pct.append(file_analysis_map[analysis_file]['Critical %'])
                         matched = True
                         break
                 
@@ -221,20 +226,44 @@ if uploaded_files:
                     overdue_jobs.append("N/A")
                     critical_overdue.append("N/A")
                     overdue_pct.append("N/A")
+                    critical_pct.append("N/A")
         
         # Add the overdue metrics to the table
         job_status_table['Overdue Jobs'] = overdue_jobs
         job_status_table['Critical Overdue'] = critical_overdue
         job_status_table['Overdue %'] = overdue_pct
+        job_status_table['Critical %'] = critical_pct
     else:
         # Add placeholders if no overdue analysis is available
         job_status_table['Overdue Jobs'] = "N/A"
         job_status_table['Critical Overdue'] = "N/A"
         job_status_table['Overdue %'] = "N/A"
+        job_status_table['Critical %'] = "N/A"
     
-    # Display the table
+    # Define a function to color cells based on percentage values
+    def highlight_percentage(val):
+        if isinstance(val, str) and val != "N/A":
+            try:
+                # Remove the % sign and convert to float
+                num_val = float(val.replace('%', ''))
+                if num_val > 3.0:
+                    return 'background-color: #FF4B4B'  # Red background for > 3%
+            except ValueError:
+                pass
+        return ''
+    
+    # Apply the styling to the dataframe for both percentage columns
+    styled_job_status_table = job_status_table.style.applymap(
+        highlight_percentage, 
+        subset=['Critical %']
+    ).applymap(
+        highlight_percentage,
+        subset=['Overdue %']
+    )
+    
+    # Display the table with styling
     st.dataframe(
-        job_status_table,
+        styled_job_status_table,
         use_container_width=True,
         hide_index=True
     )
@@ -254,9 +283,19 @@ if uploaded_files:
         st.markdown("### Overall Summary")
         overdue_metrics = st.columns(5)
         
+        # Total Jobs - Blue color
         overdue_metrics[0].metric(
             "Total Jobs", 
-            analysis_results['total_jobs']
+            analysis_results['total_jobs'],
+            delta=None,
+            delta_color="normal",
+            help=None,
+            label_visibility="visible"
+        )
+        # Apply blue color with HTML
+        overdue_metrics[0].markdown(
+            "<style>div[data-testid='stMetric']:nth-child(1) > div:nth-child(1) > p { color: #1E88E5; font-weight: bold; }</style>", 
+            unsafe_allow_html=True
         )
         
         # Calculate new jobs in the detailed file (if available)
@@ -265,19 +304,37 @@ if uploaded_files:
             if 'Job Status' in analysis_results['overdue_jobs'].columns:
                 new_status_jobs = (analysis_results['overdue_jobs']['Job Status'].str.strip().str.lower() == 'new').sum()
         
+        # New Jobs - Green color
         overdue_metrics[1].metric(
             "New Status Jobs", 
             new_status_jobs
         )
+        # Apply green color with HTML
+        overdue_metrics[1].markdown(
+            "<style>div[data-testid='stMetric']:nth-child(2) > div:nth-child(1) > p { color: #4CAF50; font-weight: bold; }</style>", 
+            unsafe_allow_html=True
+        )
         
+        # Overdue Jobs - Orange color
         overdue_metrics[2].metric(
             "Total Overdue", 
             analysis_results['overdue_jobs_count']
         )
+        # Apply orange color with HTML
+        overdue_metrics[2].markdown(
+            "<style>div[data-testid='stMetric']:nth-child(3) > div:nth-child(1) > p { color: #FF9800; font-weight: bold; }</style>", 
+            unsafe_allow_html=True
+        )
         
+        # Critical Overdue Jobs - Red color
         overdue_metrics[3].metric(
             "Total Critical", 
             analysis_results['critical_overdue_jobs_count']
+        )
+        # Apply red color with HTML
+        overdue_metrics[3].markdown(
+            "<style>div[data-testid='stMetric']:nth-child(4) > div:nth-child(1) > p { color: #F44336; font-weight: bold; }</style>", 
+            unsafe_allow_html=True
         )
         
         overdue_metrics[4].metric(
@@ -365,6 +422,7 @@ if uploaded_files:
     file_overdue_map = {}
     file_critical_map = {}
     file_overdue_pct_map = {}
+    file_critical_pct_map = {}
     
     if analysis_results and 'file_results' in analysis_results and analysis_results['file_results']:
         for file_result in analysis_results['file_results']:
@@ -373,12 +431,14 @@ if uploaded_files:
             file_overdue_map[file_name] = file_result['overdue_jobs_count']
             file_critical_map[file_name] = file_result['critical_overdue_jobs_count']
             file_overdue_pct_map[file_name] = f"{file_result['overdue_jobs_percentage']}%"
+            file_critical_pct_map[file_name] = f"{file_result['critical_overdue_jobs_percentage']}%"
             
             # Also store with basename as key
             basename = os.path.basename(file_name)
             file_overdue_map[basename] = file_result['overdue_jobs_count']
             file_critical_map[basename] = file_result['critical_overdue_jobs_count']
             file_overdue_pct_map[basename] = f"{file_result['overdue_jobs_percentage']}%"
+            file_critical_pct_map[basename] = f"{file_result['critical_overdue_jobs_percentage']}%"
 
     # Group by vessel
     for vessel in sorted(filtered_df['Vessel Name'].unique()):
@@ -390,6 +450,7 @@ if uploaded_files:
             overdue_jobs = []
             critical_overdue = []
             overdue_pct = []
+            critical_pct = []
             
             # Extract overdue metrics for each file
             for _, row in vessel_data.iterrows():
@@ -400,6 +461,7 @@ if uploaded_files:
                     overdue_jobs.append(file_overdue_map[file_name])
                     critical_overdue.append(file_critical_map[file_name])
                     overdue_pct.append(file_overdue_pct_map[file_name])
+                    critical_pct.append(file_critical_pct_map[file_name])
                 else:
                     # Try with basename
                     basename = os.path.basename(file_name)
@@ -407,48 +469,63 @@ if uploaded_files:
                         overdue_jobs.append(file_overdue_map[basename])
                         critical_overdue.append(file_critical_map[basename])
                         overdue_pct.append(file_overdue_pct_map[basename])
+                        critical_pct.append(file_critical_pct_map[basename])
                     else:
-                        # No match found, use placeholder
-                        overdue_jobs.append("N/A")
-                        critical_overdue.append("N/A")
-                        overdue_pct.append("N/A")
-            
-            # Create a copy of vessel_data with overdue metrics
+                        # Try partial matching as last resort
+                        matched = False
+                        for analysis_file in file_overdue_map:
+                            if file_name in analysis_file or analysis_file in file_name:
+                                overdue_jobs.append(file_overdue_map[analysis_file])
+                                critical_overdue.append(file_critical_map[analysis_file])
+                                overdue_pct.append(file_overdue_pct_map[analysis_file])
+                                critical_pct.append(file_critical_pct_map[analysis_file])
+                                matched = True
+                                break
+                        
+                        if not matched:
+                            overdue_jobs.append("N/A")
+                            critical_overdue.append("N/A")
+                            overdue_pct.append("N/A")
+                            critical_pct.append("N/A")
+                            
+            # Add overdue metrics to vessel data
             vessel_data_with_overdue = vessel_data.copy()
             vessel_data_with_overdue['Overdue Jobs'] = overdue_jobs
             vessel_data_with_overdue['Critical Overdue'] = critical_overdue
             vessel_data_with_overdue['Overdue %'] = overdue_pct
+            vessel_data_with_overdue['Critical %'] = critical_pct
             
-            # Calculate vessel-level totals for display in the expander header
+            # Calculate vessel-level totals
+            vessel_overdue_total = sum([val for val in overdue_jobs if val != "N/A"]) 
+            vessel_critical_total = sum([val for val in critical_overdue if val != "N/A"])
             vessel_total_jobs = vessel_data['Total Count of Jobs'].sum()
-            vessel_new_jobs = vessel_data['New Job Count'].sum()
+            vessel_new_total = vessel_data['New Job Count'].sum()
             
-            # Calculate vessel-level overdue totals (excluding N/A entries)
-            vessel_overdue_total = sum([x for x in overdue_jobs if isinstance(x, (int, float))])
-            vessel_critical_total = sum([x for x in critical_overdue if isinstance(x, (int, float))])
-            
-            # Calculate vessel-level overdue percentage
+            # Calculate vessel-level overdue and critical percentages
             if vessel_total_jobs > 0:
                 vessel_overdue_pct = f"{round((vessel_overdue_total / vessel_total_jobs) * 100, 1)}%"
+                vessel_critical_pct = f"{round((vessel_critical_total / vessel_total_jobs) * 100, 1)}%"
             else:
                 vessel_overdue_pct = "0.0%"
-            
-            # Create expander with overdue metrics
+                vessel_critical_pct = "0.0%"
+                
+            # Create expander for each vessel
             with st.expander(f"🚢 {vessel} - {len(vessel_data)} files"):
-                # Vessel total metrics with overdue information
+                # Enhanced vessel total metrics with overdue information
                 st.markdown(
                     f"**Total Jobs: {vessel_total_jobs}** | "
-                    f"**New Jobs: {vessel_new_jobs}** | "
+                    f"**New Jobs: {vessel_new_total}** | "
                     f"**Overdue Jobs: {vessel_overdue_total}** | "
                     f"**Critical Overdue: {vessel_critical_total}** | "
-                    f"**Overdue %: {vessel_overdue_pct}**"
+                    f"**Overdue %: {vessel_overdue_pct}** | "
+                    f"**Critical %: {vessel_critical_pct}**"
                 )
                 
                 # Individual file details with overdue information
                 st.dataframe(
                     vessel_data_with_overdue[['Date Extracted from File Name', 'File Name', 
                                             'Total Count of Jobs', 'New Job Count',
-                                            'Overdue Jobs', 'Critical Overdue', 'Overdue %']]
+                                            'Overdue Jobs', 'Critical Overdue', 'Overdue %', 'Critical %']]
                     .sort_values('Date Extracted from File Name', ascending=False),
                     use_container_width=True,
                     hide_index=True
@@ -481,6 +558,7 @@ if uploaded_files:
         detailed_df['Overdue Jobs'] = "N/A"
         detailed_df['Critical Overdue'] = "N/A"
         detailed_df['Overdue %'] = "N/A"
+        detailed_df['Critical %'] = "N/A"
         
         # Populate overdue metrics for each file
         for i, row in detailed_df.iterrows():
@@ -491,6 +569,7 @@ if uploaded_files:
                 detailed_df.at[i, 'Overdue Jobs'] = file_overdue_map[file_name]
                 detailed_df.at[i, 'Critical Overdue'] = file_critical_map[file_name]
                 detailed_df.at[i, 'Overdue %'] = file_overdue_pct_map[file_name]
+                detailed_df.at[i, 'Critical %'] = file_critical_pct_map[file_name]
             else:
                 # Try with basename
                 basename = os.path.basename(file_name)
@@ -498,18 +577,55 @@ if uploaded_files:
                     detailed_df.at[i, 'Overdue Jobs'] = file_overdue_map[basename]
                     detailed_df.at[i, 'Critical Overdue'] = file_critical_map[basename]
                     detailed_df.at[i, 'Overdue %'] = file_overdue_pct_map[basename]
+                    detailed_df.at[i, 'Critical %'] = file_critical_pct_map[basename]
                 else:
                     # Try partial matching as last resort
-                    for key in file_overdue_map:
-                        if key in file_name or file_name in key:
-                            detailed_df.at[i, 'Overdue Jobs'] = file_overdue_map[key]
-                            detailed_df.at[i, 'Critical Overdue'] = file_critical_map[key]
-                            detailed_df.at[i, 'Overdue %'] = file_overdue_pct_map[key]
+                    for analysis_file in file_overdue_map:
+                        if file_name in analysis_file or analysis_file in file_name:
+                            detailed_df.at[i, 'Overdue Jobs'] = file_overdue_map[analysis_file]
+                            detailed_df.at[i, 'Critical Overdue'] = file_critical_map[analysis_file]
+                            detailed_df.at[i, 'Overdue %'] = file_overdue_pct_map[analysis_file]
+                            detailed_df.at[i, 'Critical %'] = file_critical_pct_map[analysis_file]
                             break
         
-        # Display detailed results with overdue metrics
+        # Reorder the columns to put Date first, followed by other columns
+        column_order = [
+            'Date Extracted from File Name',
+            'File Name', 
+            'Vessel Name', 
+            'Total Count of Jobs', 
+            'New Job Count',
+            'Overdue Jobs',
+            'Critical Overdue',
+            'Overdue %',
+            'Critical %'
+        ]
+        detailed_df = detailed_df[column_order]
+        
+        # Define a function to color cells based on percentage values
+        def highlight_percentage(val):
+            if isinstance(val, str) and val != "N/A":
+                try:
+                    # Remove the % sign and convert to float
+                    num_val = float(val.replace('%', ''))
+                    if num_val > 3.0:
+                        return 'background-color: #FF4B4B'  # Red background for > 3%
+                except ValueError:
+                    pass
+            return ''
+        
+        # Apply the styling to the dataframe for both percentage columns
+        styled_detailed_df = detailed_df.style.applymap(
+            highlight_percentage, 
+            subset=['Critical %']
+        ).applymap(
+            highlight_percentage,
+            subset=['Overdue %']
+        )
+        
+        # Display detailed results with overdue metrics and styling
         st.dataframe(
-            detailed_df,
+            styled_detailed_df,
             use_container_width=True,
             hide_index=True
         )
@@ -553,7 +669,6 @@ if uploaded_files:
                 })
             file_level_overdue_data = pd.DataFrame(file_metrics)
         
-        # UPDATED CODE SECTION: Changed to use detailed_df when available
         # Generate the Excel report - use detailed_df instead of filtered_df_display since it contains overdue data
         # If we have overdue analysis, use detailed_df which includes the overdue columns
         if 'detailed_df' in locals() and 'Overdue Jobs' in detailed_df.columns:
@@ -580,5 +695,6 @@ if uploaded_files:
             file_name=report_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
 else:
-    st.info("Please upload one or more CSV files to analyze.")
+    st.info("👆 Please upload your CSV files to begin analysis")
