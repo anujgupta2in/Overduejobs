@@ -419,97 +419,93 @@ def create_overdue_jobs_chart(df, overdue_data=None):
     
     return fig
 
+import pandas as pd
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+def get_effective_date(file_name, today):
+    try:
+        # Extract date part from file name assuming format like "Ragnar 02032025"
+        parts = file_name.split()
+        for part in parts:
+            if part.isdigit() and len(part) == 8:
+                date_obj = datetime.strptime(part, "%d%m%Y")
+                if date_obj.month == today.month and date_obj.year == today.year:
+                    return today
+                else:
+                    # Return end of that month
+                    first_day_next_month = (date_obj.replace(day=1) + relativedelta(months=1))
+                    end_of_month = first_day_next_month - relativedelta(days=1)
+                    return end_of_month
+    except Exception as e:
+        print(f"Date parsing error for file {file_name}: {e}")
+    return today  # Default to today if parsing fails
+
 def analyze_overdue_jobs(df):
     """Analyze overdue jobs and critical overdue jobs from a DataFrame.
     
     Returns a dictionary with overdue job metrics per individual file/record.
     """
     try:
-        # Make a copy to avoid modifying the original DataFrame
         df_copy = df.copy()
-        
-        # Clean column names
         df_copy.columns = df_copy.columns.str.strip()
-        
-        # Initialize results for each file
+
         file_results = []
-        
-        # Process each row as an individual file record
+
         if 'Calculated Due Date' in df_copy.columns and 'Job Status' in df_copy.columns:
-            # Convert 'Calculated Due Date' to datetime once
             df_copy['Calculated Due Date'] = pd.to_datetime(df_copy['Calculated Due Date'], errors='coerce')
-            
-            # Define today's date
             today = pd.to_datetime(datetime.today().date())
-            
-            # We'll create a new DataFrame to store individual file results
-            result_df = pd.DataFrame()
-            
-            # Check for the source file column first (added during processing in app.py)
+
             if '_source_file' in df_copy.columns:
                 files = df_copy['_source_file'].unique()
                 file_col = '_source_file'
-            # Otherwise check for a File Name column
             elif 'File Name' in df_copy.columns:
                 files = df_copy['File Name'].unique()
                 file_col = 'File Name'
             else:
-                # Analyze as one file if no file name column
                 files = ['Entire Dataset']
                 df_copy['_file_id'] = 'Entire Dataset'
                 file_col = '_file_id'
-            
-            # Process each file
+
             for file_name in files:
                 file_data = df_copy[df_copy[file_col] == file_name]
                 
-                # Calculate overdue jobs for this file
+                # Use effective date based on filename
+                effective_date = get_effective_date(str(file_name), today)
+
                 overdue_jobs = file_data[
-                    (file_data['Calculated Due Date'] <= today) &
+                    (file_data['Calculated Due Date'] <= effective_date) &
                     (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
                 ]
                 overdue_jobs_count = len(overdue_jobs)
-                
-                # Calculate critical overdue jobs for this file
+
                 try:
-                    # Check if the column exists first
                     if 'Unnamed: 0' in file_data.columns:
                         critical_overdue_jobs = file_data[
                             (file_data['Unnamed: 0'].astype(str).str.strip().str.lower() == 'c') &
-                            (file_data['Calculated Due Date'] <= today) &
+                            (file_data['Calculated Due Date'] <= effective_date) &
                             (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
                         ]
                     else:
-                        # Try alternative columns that might indicate criticality
                         critical_col = next((col for col in file_data.columns if 'critical' in col.lower() or 'priority' in col.lower()), None)
-                        
                         if critical_col:
                             critical_overdue_jobs = file_data[
                                 (file_data[critical_col].astype(str).str.strip().str.lower().isin(['c', 'critical', 'high', 'yes', 'true'])) &
-                                (file_data['Calculated Due Date'] <= today) &
+                                (file_data['Calculated Due Date'] <= effective_date) &
                                 (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
                             ]
                         else:
-                            # No criticality column found
                             critical_overdue_jobs = pd.DataFrame()
                 except Exception as e:
                     print(f"Error processing critical jobs for {file_name}: {str(e)}")
                     critical_overdue_jobs = pd.DataFrame()
-                
+
                 critical_overdue_jobs_count = len(critical_overdue_jobs)
-                
-                # Total jobs in this file
                 total_jobs = len(file_data)
-                
-                # Calculate percentages for this file
-                if total_jobs > 0:
-                    overdue_jobs_percentage = round((overdue_jobs_count / total_jobs) * 100, 2)
-                    critical_overdue_jobs_percentage = round((critical_overdue_jobs_count / total_jobs) * 100, 2)
-                else:
-                    overdue_jobs_percentage = 0
-                    critical_overdue_jobs_percentage = 0
-                
-                # Add to results
+
+                overdue_jobs_percentage = round((overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
+                critical_overdue_jobs_percentage = round((critical_overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
+
                 file_results.append({
                     'file_name': file_name,
                     'total_jobs': total_jobs,
@@ -520,36 +516,29 @@ def analyze_overdue_jobs(df):
                     'overdue_jobs': overdue_jobs,
                     'critical_overdue_jobs': critical_overdue_jobs
                 })
-            
-            # Create DataFrame from results
+
             results_df = pd.DataFrame(file_results)
-            
-            # Calculate overall totals
             total_all_jobs = results_df['total_jobs'].sum()
             total_overdue = results_df['overdue_jobs_count'].sum()
             total_critical = results_df['critical_overdue_jobs_count'].sum()
-            
-            if total_all_jobs > 0:
-                overall_overdue_pct = round((total_overdue / total_all_jobs) * 100, 2)
-                overall_critical_pct = round((total_critical / total_all_jobs) * 100, 2)
-            else:
-                overall_overdue_pct = 0
-                overall_critical_pct = 0
-            
-            # Combine all overdue and critical jobs
+
+            overall_overdue_pct = round((total_overdue / total_all_jobs) * 100, 2) if total_all_jobs else 0
+            overall_critical_pct = round((total_critical / total_all_jobs) * 100, 2) if total_all_jobs else 0
+
             all_overdue = pd.concat([result['overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
             all_critical = pd.concat([result['critical_overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
-            
+
             return {
-                'file_results': file_results,  # Individual file results
-                'overdue_jobs_count': total_overdue,  # Total across all files
+                'file_results': file_results,
+                'overdue_jobs_count': total_overdue,
                 'overdue_jobs_percentage': overall_overdue_pct,
                 'critical_overdue_jobs_count': total_critical,
                 'critical_overdue_jobs_percentage': overall_critical_pct,
                 'total_jobs': total_all_jobs,
-                'overdue_jobs': all_overdue,  # All overdue jobs combined
-                'critical_overdue_jobs': all_critical  # All critical jobs combined
+                'overdue_jobs': all_overdue,
+                'critical_overdue_jobs': all_critical
             }
+
         else:
             return {
                 'file_results': [],
@@ -561,6 +550,7 @@ def analyze_overdue_jobs(df):
                 'overdue_jobs': pd.DataFrame(),
                 'critical_overdue_jobs': pd.DataFrame()
             }
+
     except Exception as e:
         print(f"Error analyzing overdue jobs: {str(e)}")
         return {
