@@ -77,7 +77,7 @@ def create_vessel_job_distribution_chart(df, overdue_data=None):
         name='Total Jobs',
         x=[f"{row['Vessel Name']} - {row['File Name']}" for _, row in df.iterrows()],
         y=df['Total Count of Jobs'],
-        marker_color='#1F4E78'
+        marker_color='#1E88E5'  # Blue for Total Jobs
     ))
     
     # Add new jobs bars
@@ -85,7 +85,7 @@ def create_vessel_job_distribution_chart(df, overdue_data=None):
         name='New Jobs',
         x=[f"{row['Vessel Name']} - {row['File Name']}" for _, row in df.iterrows()],
         y=df['New Job Count'],
-        marker_color='#F63366'
+        marker_color='#4CAF50'  # Green for New Jobs
     ))
     
     # Add overdue jobs bars if data is provided
@@ -141,7 +141,7 @@ def create_vessel_job_distribution_chart(df, overdue_data=None):
                 name='Overdue Jobs',
                 x=[f"{row['Vessel Name']} - {row['File Name']}" for _, row in df.iterrows()],
                 y=overdue_jobs,
-                marker_color='#FF9F40'
+                marker_color='#FF9800'  # Orange for Overdue Jobs
             ))
         
         # Add critical overdue jobs bars for each vessel-file
@@ -150,7 +150,7 @@ def create_vessel_job_distribution_chart(df, overdue_data=None):
                 name='Critical Overdue Jobs',
                 x=[f"{row['Vessel Name']} - {row['File Name']}" for _, row in df.iterrows()],
                 y=critical_overdue_jobs,
-                marker_color='#FF5252'
+                marker_color='#F44336'  # Red for Critical Overdue Jobs
             ))
     
     # Update layout with improved readability
@@ -193,13 +193,13 @@ def create_jobs_timeline_chart(df, overdue_data=None):
         x=timeline_data['Date Extracted from File Name'],
         y=timeline_data['Total Count of Jobs'],
         name='Total Jobs',
-        line=dict(color='#1F4E78', width=2)
+        line=dict(color='#1E88E5', width=2)  # Blue for Total Jobs
     ))
     fig.add_trace(go.Scatter(
         x=timeline_data['Date Extracted from File Name'],
         y=timeline_data['New Job Count'],
         name='New Jobs',
-        line=dict(color='#F63366', width=2)
+        line=dict(color='#4CAF50', width=2)  # Green for New Jobs
     ))
     
     # Add overdue jobs to the timeline if data exists
@@ -264,7 +264,7 @@ def create_jobs_timeline_chart(df, overdue_data=None):
                 x=sorted_dates,
                 y=sorted_overdue,
                 name='Overdue Jobs',
-                line=dict(color='#FF9F40', width=2, dash='dot'),
+                line=dict(color='#FF9800', width=2, dash='dot'),  # Orange for Overdue Jobs
                 mode='lines+markers+text',
                 text=sorted_overdue,
                 textposition="top center"
@@ -276,7 +276,7 @@ def create_jobs_timeline_chart(df, overdue_data=None):
                 x=sorted_dates,
                 y=sorted_critical,
                 name='Critical Overdue',
-                line=dict(color='#FF5252', width=2, dash='dot'),
+                line=dict(color='#F44336', width=2, dash='dot'),  # Red for Critical Overdue
                 mode='lines+markers+text',
                 text=sorted_critical,
                 textposition="top right"
@@ -344,11 +344,13 @@ def create_jobs_pie_chart(df, overdue_data=None):
         if critical_overdue > 0:
             labels = ['New Jobs', 'Overdue Jobs', 'Critical Overdue', 'Other Jobs']
             values = [new_jobs, overdue_jobs - critical_overdue, critical_overdue, remaining_jobs]
-            colors = ['#F63366', '#FF9F40', '#FF5252', '#1F4E78']
+            # Colors: Green for New Jobs, Orange for Overdue Jobs, Red for Critical Overdue, Blue for Other Jobs
+            colors = ['#4CAF50', '#FF9800', '#F44336', '#1E88E5']
         else:
             labels = ['New Jobs', 'Overdue Jobs', 'Other Jobs']
             values = [new_jobs, overdue_jobs, remaining_jobs]
-            colors = ['#F63366', '#FF9F40', '#1F4E78']
+            # Colors: Green for New Jobs, Orange for Overdue Jobs, Blue for Other Jobs
+            colors = ['#4CAF50', '#FF9800', '#1E88E5']
         
         fig = go.Figure(data=[go.Pie(
             labels=labels,
@@ -370,7 +372,8 @@ def create_jobs_pie_chart(df, overdue_data=None):
             labels=['New Jobs', 'Existing Jobs'],
             values=[new_jobs, existing_jobs],
             hole=.4,
-            marker_colors=['#F63366', '#1F4E78']
+            # Green for New Jobs, Blue for Existing Jobs
+            marker_colors=['#4CAF50', '#1E88E5']
         )])
         
         fig.update_layout(
@@ -381,47 +384,7 @@ def create_jobs_pie_chart(df, overdue_data=None):
     
     return fig
 
-def create_overdue_jobs_chart(df, overdue_data=None):
-    """Create a bar chart showing overdue and critical overdue jobs comparison.
-    
-    Args:
-        df: DataFrame with job data
-        overdue_data: Optional dictionary with overdue jobs data
-    """
-    # Calculate total overdue and critical overdue jobs from file-level data
-    total_overdue = 0
-    total_critical = 0
-    
-    if overdue_data and 'file_results' in overdue_data and overdue_data['file_results']:
-        # Sum up all overdue and critical overdue jobs across all files
-        for file_result in overdue_data['file_results']:
-            total_overdue += file_result['overdue_jobs_count']
-            total_critical += file_result['critical_overdue_jobs_count']
-    
-    # Create the bar chart
-    fig = go.Figure()
-    
-    # Add bars for overdue and critical overdue
-    fig.add_trace(go.Bar(
-        x=['Overdue Jobs', 'Critical Overdue Jobs'],
-        y=[total_overdue, total_critical],
-        marker_color=['#FF9F40', '#FF5252']
-    ))
-    
-    # Update layout for better readability
-    fig.update_layout(
-        title='Overdue Jobs Analysis',
-        yaxis_title='Count',
-        xaxis_title='Job Type',
-        height=400,
-        showlegend=False
-    )
-    
-    return fig
-
-import pandas as pd
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+# This function has been moved to the bottom of the file and renamed
 
 def get_effective_date(file_name, today):
     try:
@@ -434,8 +397,8 @@ def get_effective_date(file_name, today):
                     return today
                 else:
                     # Return end of that month
-                    first_day_next_month = (date_obj.replace(day=1) + relativedelta(months=1))
-                    end_of_month = first_day_next_month - relativedelta(days=1)
+                    first_day_next_month = (date_obj.replace(day=1) + pd.DateOffset(months=1))
+                    end_of_month = first_day_next_month - pd.DateOffset(days=1)
                     return end_of_month
     except Exception as e:
         print(f"Date parsing error for file {file_name}: {e}")
@@ -571,7 +534,7 @@ def create_overdue_jobs_chart(overdue_data, critical_data):
     
     fig = go.Figure(data=[
         go.Bar(name='Count', x=labels, y=values, 
-               marker_color=['#FF9F40', '#FF5252'])
+               marker_color=['#FF9800', '#F44336'])  # Orange for Overdue, Red for Critical
     ])
     
     fig.update_layout(
@@ -596,14 +559,15 @@ def create_excel_report(df, overdue_data=None, file_level_overdue_data=None):
     
     # Define the exact column order as shown in the image
     required_columns = [
+        'Date Extracted from File Name',
         'File Name',
         'Vessel Name',
         'Total Count of Jobs',
         'New Job Count',
-        'Date Extracted from File Name',
         'Overdue Jobs',
         'Critical Overdue',
-        'Overdue %'
+        'Overdue %',
+        'Critical %'
     ]
     
     # Filter the DataFrame to include only the required columns that exist
@@ -654,6 +618,35 @@ def create_excel_report(df, overdue_data=None, file_level_overdue_data=None):
     # Create rule for duplicate values in Vessel Name column
     dup_rule = Rule(type="duplicateValues", dxf=dxf, stopIfTrue=False)
     ws.conditional_formatting.add(f'B2:B{ws.max_row}', dup_rule)
+    
+    # Add red highlighting for both Critical % and Overdue % values > 3%
+    # Find the Critical % and Overdue % columns
+    critical_pct_col = None
+    overdue_pct_col = None
+    
+    for i, cell in enumerate(ws[1]):
+        if cell.value:
+            if 'Critical %' in str(cell.value):
+                critical_pct_col = get_column_letter(i+1)
+            elif 'Overdue %' in str(cell.value):
+                overdue_pct_col = get_column_letter(i+1)
+    
+    # Define red fill for percentage > 3%
+    red_fill = PatternFill(start_color="FF4B4B", end_color="FF4B4B", fill_type="solid")
+    red_font = Font(color="FFFFFF", bold=True)
+    red_style = DifferentialStyle(fill=red_fill, font=red_font)
+    
+    # Apply formatting to Critical % column
+    if critical_pct_col:
+        formula = f'AND(ISNUMBER(VALUE(SUBSTITUTE({critical_pct_col}2,"%",""))),VALUE(SUBSTITUTE({critical_pct_col}2,"%",""))>3)'
+        critical_rule = Rule(type="expression", formula=[formula], dxf=red_style, stopIfTrue=False)
+        ws.conditional_formatting.add(f'{critical_pct_col}2:{critical_pct_col}{ws.max_row}', critical_rule)
+    
+    # Apply formatting to Overdue % column
+    if overdue_pct_col:
+        formula = f'AND(ISNUMBER(VALUE(SUBSTITUTE({overdue_pct_col}2,"%",""))),VALUE(SUBSTITUTE({overdue_pct_col}2,"%",""))>3)'
+        overdue_rule = Rule(type="expression", formula=[formula], dxf=red_style, stopIfTrue=False)
+        ws.conditional_formatting.add(f'{overdue_pct_col}2:{overdue_pct_col}{ws.max_row}', overdue_rule)
     
     # Alternating row colors
     gray_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
