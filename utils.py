@@ -396,10 +396,9 @@ def get_effective_date(file_name, today):
                 if date_obj.month == today.month and date_obj.year == today.year:
                     return today
                 else:
-                    # Return end of that month
+                    # Return first day of the next month
                     first_day_next_month = (date_obj.replace(day=1) + pd.DateOffset(months=1))
-                    end_of_month = first_day_next_month - pd.DateOffset(days=1)
-                    return end_of_month
+                    return first_day_next_month
     except Exception as e:
         print(f"Date parsing error for file {file_name}: {e}")
     return today  # Default to today if parsing fails
