@@ -384,7 +384,8 @@ def create_jobs_pie_chart(df, overdue_data=None):
     
     return fig
 
-# This function has been moved to the bottom of the file and renamed
+from datetime import datetime
+import pandas as pd
 
 def get_effective_date(file_name, today):
     try:
@@ -393,15 +394,11 @@ def get_effective_date(file_name, today):
         for part in parts:
             if part.isdigit() and len(part) == 8:
                 date_obj = datetime.strptime(part, "%d%m%Y")
-                if date_obj.month == today.month and date_obj.year == today.year:
-                    return today
-                else:
-                    # Return first day of the next month
-                    first_day_next_month = (date_obj.replace(day=1) + pd.DateOffset(months=1))
-                    return first_day_next_month
+                return date_obj
     except Exception as e:
         print(f"Date parsing error for file {file_name}: {e}")
     return today  # Default to today if parsing fails
+
 
 def analyze_overdue_jobs(df):
     """Analyze overdue jobs and critical overdue jobs from a DataFrame.
