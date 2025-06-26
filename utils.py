@@ -402,7 +402,7 @@ def get_effective_date(file_name, today):
 
 def analyze_overdue_jobs(df):
     """Analyze overdue jobs and critical overdue jobs from a DataFrame.
-    
+
     Returns a dictionary with overdue job metrics per individual file/record.
     """
     try:
@@ -428,13 +428,15 @@ def analyze_overdue_jobs(df):
 
             for file_name in files:
                 file_data = df_copy[df_copy[file_col] == file_name]
-                
-                # Use effective date based on filename
-                effective_date = get_effective_date(str(file_name), today)
+
+                # Use effective date based on filename, but fallback to today if file date == today
+                file_date = get_effective_date(str(file_name), today)
+                today_date = pd.to_datetime(datetime.today().date())
+                effective_date = today_date if file_date.date() == today_date.date() else file_date
 
                 overdue_jobs = file_data[
                     (file_data['Calculated Due Date'] <= effective_date) &
-                    (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
+                    (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
                 ]
                 overdue_jobs_count = len(overdue_jobs)
 
@@ -443,7 +445,7 @@ def analyze_overdue_jobs(df):
                         critical_overdue_jobs = file_data[
                             (file_data['Unnamed: 0'].astype(str).str.strip().str.lower() == 'c') &
                             (file_data['Calculated Due Date'] <= effective_date) &
-                            (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
+                            (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
                         ]
                     else:
                         critical_col = next((col for col in file_data.columns if 'critical' in col.lower() or 'priority' in col.lower()), None)
@@ -451,7 +453,7 @@ def analyze_overdue_jobs(df):
                             critical_overdue_jobs = file_data[
                                 (file_data[critical_col].astype(str).str.strip().str.lower().isin(['c', 'critical', 'high', 'yes', 'true'])) &
                                 (file_data['Calculated Due Date'] <= effective_date) &
-                                (file_data['Job Status'].str.strip().str.lower().isin(['pending', 'in progress on board']))
+                                (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
                             ]
                         else:
                             critical_overdue_jobs = pd.DataFrame()
