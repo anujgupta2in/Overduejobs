@@ -406,6 +406,8 @@ def analyze_overdue_jobs(df):
     Returns a dictionary with overdue job metrics per individual file/record.
     """
     try:
+        import os  # ensure this is imported at the top if not already
+
         df_copy = df.copy()
         df_copy.columns = df_copy.columns.str.strip()
 
@@ -429,14 +431,12 @@ def analyze_overdue_jobs(df):
             for file_name in files:
                 file_data = df_copy[df_copy[file_col] == file_name]
 
-                # Use effective date based on filename, but fallback to today if file date == today
-                # Fix: Strip extension from file name for accurate date extraction
+                # ✅ FIX: Strip path + .csv from filename
                 base_name = os.path.splitext(os.path.basename(str(file_name)))[0]
                 file_date = get_effective_date(base_name, today)
-                
+
                 today_date = pd.to_datetime(datetime.today().date())
                 effective_date = today_date if file_date.date() == today_date.date() else file_date
-
 
                 overdue_jobs = file_data[
                     (file_data['Calculated Due Date'] <= effective_date) &
@@ -528,6 +528,7 @@ def analyze_overdue_jobs(df):
             'overdue_jobs': pd.DataFrame(),
             'critical_overdue_jobs': pd.DataFrame()
         }
+
 
 def create_overdue_jobs_chart(overdue_data, critical_data):
     """Create a bar chart comparing overdue and critical overdue jobs."""
