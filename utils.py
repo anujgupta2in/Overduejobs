@@ -430,9 +430,13 @@ def analyze_overdue_jobs(df):
                 file_data = df_copy[df_copy[file_col] == file_name]
 
                 # Use effective date based on filename, but fallback to today if file date == today
-                file_date = get_effective_date(str(file_name), today)
+                # Fix: Strip extension from file name for accurate date extraction
+                base_name = os.path.splitext(os.path.basename(str(file_name)))[0]
+                file_date = get_effective_date(base_name, today)
+                
                 today_date = pd.to_datetime(datetime.today().date())
                 effective_date = today_date if file_date.date() == today_date.date() else file_date
+
 
                 overdue_jobs = file_data[
                     (file_data['Calculated Due Date'] <= effective_date) &
