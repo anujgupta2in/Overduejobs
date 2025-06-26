@@ -60,6 +60,146 @@ def process_csv_file(file):
             'Date Extracted from File Name': formatted_date
         }
 
+def get_effective_date(file_name, today):
+    try:
+        # Extract date part from file name assuming format like "Ragnar 02032025"
+        parts = file_name.split()
+        for part in parts:
+            if part.isdigit() and len(part) == 8:
+                date_obj = datetime.strptime(part, "%d%m%Y")
+                return date_obj
+    except Exception as e:
+        print(f"Date parsing error for file {file_name}: {e}")
+    return today  # Default to today if parsing fails
+
+def analyze_overdue_jobs(df):
+    """Analyze overdue jobs and critical overdue jobs from a DataFrame.
+
+    Returns a dictionary with overdue job metrics per individual file/record.
+    """
+    try:
+        df_copy = df.copy()
+        df_copy.columns = df_copy.columns.str.strip()
+
+        file_results = []
+
+        if 'Calculated Due Date' in df_copy.columns and 'Job Status' in df_copy.columns:
+            df_copy['Calculated Due Date'] = pd.to_datetime(df_copy['Calculated Due Date'], format='%d-%m-%Y', errors='coerce')
+            today = pd.to_datetime(datetime.today().date())
+
+            if '_source_file' in df_copy.columns:
+                files = df_copy['_source_file'].unique()
+                file_col = '_source_file'
+            elif 'File Name' in df_copy.columns:
+                files = df_copy['File Name'].unique()
+                file_col = 'File Name'
+            else:
+                files = ['Entire Dataset']
+                df_copy['_file_id'] = 'Entire Dataset'
+                file_col = '_file_id'
+
+            for file_name in files:
+                file_data = df_copy[df_copy[file_col] == file_name]
+
+                # Use effective date based on filename, but fallback to today if file date == today
+                # Fix: Strip extension from file name for accurate date extraction
+                base_name = os.path.splitext(os.path.basename(str(file_name)))[0]
+                file_date = get_effective_date(base_name, today)
+                
+                today_date = pd.to_datetime(datetime.today().date())
+                effective_date = today_date if file_date.date() == today_date.date() else file_date
+
+                overdue_jobs = file_data[
+                    (file_data['Calculated Due Date'] <= effective_date) &
+                    (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
+                ]
+                overdue_jobs_count = len(overdue_jobs)
+
+                try:
+                    if 'Unnamed: 0' in file_data.columns:
+                        critical_overdue_jobs = file_data[
+                            (file_data['Unnamed: 0'].astype(str).str.strip().str.lower() == 'c') &
+                            (file_data['Calculated Due Date'] <= effective_date) &
+                            (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
+                        ]
+                    else:
+                        critical_col = next((col for col in file_data.columns if 'critical' in col.lower() or 'priority' in col.lower()), None)
+                        if critical_col:
+                            critical_overdue_jobs = file_data[
+                                (file_data[critical_col].astype(str).str.strip().str.lower().isin(['c', 'critical', 'high', 'yes', 'true'])) &
+                                (file_data['Calculated Due Date'] <= effective_date) &
+                                (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
+                            ]
+                        else:
+                            critical_overdue_jobs = pd.DataFrame()
+                except Exception as e:
+                    print(f"Error processing critical jobs for {file_name}: {str(e)}")
+                    critical_overdue_jobs = pd.DataFrame()
+
+                critical_overdue_jobs_count = len(critical_overdue_jobs)
+                total_jobs = len(file_data)
+
+                overdue_jobs_percentage = round((overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
+                critical_overdue_jobs_percentage = round((critical_overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
+
+                file_results.append({
+                    'file_name': file_name,
+                    'total_jobs': total_jobs,
+                    'overdue_jobs_count': overdue_jobs_count,
+                    'overdue_jobs_percentage': overdue_jobs_percentage,
+                    'critical_overdue_jobs_count': critical_overdue_jobs_count,
+                    'critical_overdue_jobs_percentage': critical_overdue_jobs_percentage,
+                    'overdue_jobs': overdue_jobs,
+                    'critical_overdue_jobs': critical_overdue_jobs
+                })
+
+            results_df = pd.DataFrame(file_results)
+            total_all_jobs = results_df['total_jobs'].sum()
+            total_overdue = results_df['overdue_jobs_count'].sum()
+            total_critical = results_df['critical_overdue_jobs_count'].sum()
+
+            overall_overdue_pct = round((total_overdue / total_all_jobs) * 100, 2) if total_all_jobs else 0
+            overall_critical_pct = round((total_critical / total_all_jobs) * 100, 2) if total_all_jobs else 0
+
+            all_overdue = pd.concat([result['overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
+            all_critical = pd.concat([result['critical_overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
+
+            return {
+                'file_results': file_results,
+                'overdue_jobs_count': total_overdue,
+                'overdue_jobs_percentage': overall_overdue_pct,
+                'critical_overdue_jobs_count': total_critical,
+                'critical_overdue_jobs_percentage': overall_critical_pct,
+                'total_jobs': total_all_jobs,
+                'overdue_jobs': all_overdue,
+                'critical_overdue_jobs': all_critical
+            }
+
+        else:
+            return {
+                'file_results': [],
+                'overdue_jobs_count': 0,
+                'overdue_jobs_percentage': 0,
+                'critical_overdue_jobs_count': 0,
+                'critical_overdue_jobs_percentage': 0,
+                'total_jobs': 0,
+                'overdue_jobs': pd.DataFrame(),
+                'critical_overdue_jobs': pd.DataFrame()
+            }
+
+    except Exception as e:
+        print(f"Error analyzing overdue jobs: {str(e)}")
+        return {
+            'file_results': [],
+            'overdue_jobs_count': 0,
+            'overdue_jobs_percentage': 0,
+            'critical_overdue_jobs_count': 0,
+            'critical_overdue_jobs_percentage': 0,
+            'total_jobs': 0,
+            'overdue_jobs': pd.DataFrame(),
+            'critical_overdue_jobs': pd.DataFrame()
+        }
+
 def create_vessel_job_distribution_chart(df, overdue_data=None):
     """Create a bar chart showing job distribution across vessels for individual files.
     
@@ -314,15 +454,16 @@ def create_jobs_pie_chart(df, overdue_data=None):
             file_to_overdue[file_result['file_name']] = file_result['overdue_jobs_count']
             file_to_critical[file_result['file_name']] = file_result['critical_overdue_jobs_count']
         
-        # Match and sum overdue data for files in the current DataFrame
+        # Sum up overdue jobs for files in the current filtered data
         for _, row in df.iterrows():
             file_name = row['File Name']
+            
             # Try exact match
             if file_name in file_to_overdue:
                 overdue_jobs += file_to_overdue[file_name]
                 critical_overdue += file_to_critical[file_name]
             else:
-                # Try basename
+                # Try basename matching
                 basename = os.path.basename(file_name)
                 if basename in file_to_overdue:
                     overdue_jobs += file_to_overdue[basename]
@@ -335,200 +476,58 @@ def create_jobs_pie_chart(df, overdue_data=None):
                             critical_overdue += file_to_critical[analysis_file]
                             break
     
-    # If we have overdue jobs data, include it in the chart
+    # Calculate remaining jobs (total - new - overdue)
+    # Note: overdue jobs might overlap with new jobs, so we need to be careful
+    remaining_jobs = total_jobs - new_jobs - overdue_jobs
+    if remaining_jobs < 0:
+        remaining_jobs = 0
+    
+    # Prepare data for pie chart
+    labels = []
+    values = []
+    colors = []
+    
+    if new_jobs > 0:
+        labels.append('New Jobs')
+        values.append(new_jobs)
+        colors.append('#4CAF50')  # Green
+    
     if overdue_jobs > 0:
-        # Calculate the remaining jobs (ensuring it's not negative)
-        remaining_jobs = max(0, total_jobs - new_jobs - overdue_jobs)
-        
-        # If we have critical overdue jobs, show them separately
-        if critical_overdue > 0:
-            labels = ['New Jobs', 'Overdue Jobs', 'Critical Overdue', 'Other Jobs']
-            values = [new_jobs, overdue_jobs - critical_overdue, critical_overdue, remaining_jobs]
-            # Colors: Green for New Jobs, Orange for Overdue Jobs, Red for Critical Overdue, Blue for Other Jobs
-            colors = ['#4CAF50', '#FF9800', '#F44336', '#1E88E5']
-        else:
-            labels = ['New Jobs', 'Overdue Jobs', 'Other Jobs']
-            values = [new_jobs, overdue_jobs, remaining_jobs]
-            # Colors: Green for New Jobs, Orange for Overdue Jobs, Blue for Other Jobs
-            colors = ['#4CAF50', '#FF9800', '#1E88E5']
-        
-        fig = go.Figure(data=[go.Pie(
-            labels=labels,
-            values=values,
-            hole=.4,
-            marker_colors=colors
-        )])
-        
-        fig.update_layout(
-            title='Job Status Distribution',
-            height=400,
-            showlegend=True
-        )
-    else:
-        # Original pie chart without overdue data
-        existing_jobs = total_jobs - new_jobs
-        
-        fig = go.Figure(data=[go.Pie(
-            labels=['New Jobs', 'Existing Jobs'],
-            values=[new_jobs, existing_jobs],
-            hole=.4,
-            # Green for New Jobs, Blue for Existing Jobs
-            marker_colors=['#4CAF50', '#1E88E5']
-        )])
-        
-        fig.update_layout(
-            title='New vs. Existing Jobs Distribution',
-            height=400,
-            showlegend=True
-        )
+        labels.append('Overdue Jobs')
+        values.append(overdue_jobs)
+        colors.append('#FF9800')  # Orange
+    
+    if critical_overdue > 0:
+        labels.append('Critical Overdue')
+        values.append(critical_overdue)
+        colors.append('#F44336')  # Red
+    
+    if remaining_jobs > 0:
+        labels.append('Other Jobs')
+        values.append(remaining_jobs)
+        colors.append('#1E88E5')  # Blue
+    
+    # Create pie chart
+    if not labels:
+        # Fallback if no data
+        labels = ['No Data']
+        values = [1]
+        colors = ['#E0E0E0']
+    
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=.4,
+        marker_colors=colors
+    )])
+    
+    fig.update_layout(
+        title='Job Status Distribution',
+        height=400,
+        showlegend=True
+    )
     
     return fig
-
-from datetime import datetime
-import pandas as pd
-
-def get_effective_date(file_name, today):
-    try:
-        # Extract date part from file name assuming format like "Ragnar 02032025"
-        parts = file_name.split()
-        for part in parts:
-            if part.isdigit() and len(part) == 8:
-                date_obj = datetime.strptime(part, "%d%m%Y")
-                return date_obj
-    except Exception as e:
-        print(f"Date parsing error for file {file_name}: {e}")
-    return today  # Default to today if parsing fails
-
-
-def analyze_overdue_jobs(df):
-    """Analyze overdue jobs and critical overdue jobs from a DataFrame.
-
-    Returns a dictionary with overdue job metrics per individual file/record.
-    """
-    try:
-        import os  # ensure this is imported at the top if not already
-
-        df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.strip()
-
-        file_results = []
-
-        if 'Calculated Due Date' in df_copy.columns and 'Job Status' in df_copy.columns:
-            df_copy['Calculated Due Date'] = pd.to_datetime(df_copy['Calculated Due Date'], errors='coerce')
-            today = pd.to_datetime(datetime.today().date())
-
-            if '_source_file' in df_copy.columns:
-                files = df_copy['_source_file'].unique()
-                file_col = '_source_file'
-            elif 'File Name' in df_copy.columns:
-                files = df_copy['File Name'].unique()
-                file_col = 'File Name'
-            else:
-                files = ['Entire Dataset']
-                df_copy['_file_id'] = 'Entire Dataset'
-                file_col = '_file_id'
-
-            for file_name in files:
-                file_data = df_copy[df_copy[file_col] == file_name]
-
-                # ✅ FIX: Strip path + .csv from filename
-                base_name = os.path.splitext(os.path.basename(str(file_name)))[0]
-                file_date = get_effective_date(base_name, today)
-
-                today_date = pd.to_datetime(datetime.today().date())
-                effective_date = today_date if file_date.date() == today_date.date() else file_date
-
-                overdue_jobs = file_data[
-                    (file_data['Calculated Due Date'] <= effective_date) &
-                    (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
-                ]
-                overdue_jobs_count = len(overdue_jobs)
-
-                try:
-                    if 'Unnamed: 0' in file_data.columns:
-                        critical_overdue_jobs = file_data[
-                            (file_data['Unnamed: 0'].astype(str).str.strip().str.lower() == 'c') &
-                            (file_data['Calculated Due Date'] <= effective_date) &
-                            (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
-                        ]
-                    else:
-                        critical_col = next((col for col in file_data.columns if 'critical' in col.lower() or 'priority' in col.lower()), None)
-                        if critical_col:
-                            critical_overdue_jobs = file_data[
-                                (file_data[critical_col].astype(str).str.strip().str.lower().isin(['c', 'critical', 'high', 'yes', 'true'])) &
-                                (file_data['Calculated Due Date'] <= effective_date) &
-                                (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
-                            ]
-                        else:
-                            critical_overdue_jobs = pd.DataFrame()
-                except Exception as e:
-                    print(f"Error processing critical jobs for {file_name}: {str(e)}")
-                    critical_overdue_jobs = pd.DataFrame()
-
-                critical_overdue_jobs_count = len(critical_overdue_jobs)
-                total_jobs = len(file_data)
-
-                overdue_jobs_percentage = round((overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
-                critical_overdue_jobs_percentage = round((critical_overdue_jobs_count / total_jobs) * 100, 2) if total_jobs else 0
-
-                file_results.append({
-                    'file_name': file_name,
-                    'total_jobs': total_jobs,
-                    'overdue_jobs_count': overdue_jobs_count,
-                    'overdue_jobs_percentage': overdue_jobs_percentage,
-                    'critical_overdue_jobs_count': critical_overdue_jobs_count,
-                    'critical_overdue_jobs_percentage': critical_overdue_jobs_percentage,
-                    'overdue_jobs': overdue_jobs,
-                    'critical_overdue_jobs': critical_overdue_jobs
-                })
-
-            results_df = pd.DataFrame(file_results)
-            total_all_jobs = results_df['total_jobs'].sum()
-            total_overdue = results_df['overdue_jobs_count'].sum()
-            total_critical = results_df['critical_overdue_jobs_count'].sum()
-
-            overall_overdue_pct = round((total_overdue / total_all_jobs) * 100, 2) if total_all_jobs else 0
-            overall_critical_pct = round((total_critical / total_all_jobs) * 100, 2) if total_all_jobs else 0
-
-            all_overdue = pd.concat([result['overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
-            all_critical = pd.concat([result['critical_overdue_jobs'] for result in file_results]) if file_results else pd.DataFrame()
-
-            return {
-                'file_results': file_results,
-                'overdue_jobs_count': total_overdue,
-                'overdue_jobs_percentage': overall_overdue_pct,
-                'critical_overdue_jobs_count': total_critical,
-                'critical_overdue_jobs_percentage': overall_critical_pct,
-                'total_jobs': total_all_jobs,
-                'overdue_jobs': all_overdue,
-                'critical_overdue_jobs': all_critical
-            }
-
-        else:
-            return {
-                'file_results': [],
-                'overdue_jobs_count': 0,
-                'overdue_jobs_percentage': 0,
-                'critical_overdue_jobs_count': 0,
-                'critical_overdue_jobs_percentage': 0,
-                'total_jobs': 0,
-                'overdue_jobs': pd.DataFrame(),
-                'critical_overdue_jobs': pd.DataFrame()
-            }
-
-    except Exception as e:
-        print(f"Error analyzing overdue jobs: {str(e)}")
-        return {
-            'file_results': [],
-            'overdue_jobs_count': 0,
-            'overdue_jobs_percentage': 0,
-            'critical_overdue_jobs_count': 0,
-            'critical_overdue_jobs_percentage': 0,
-            'total_jobs': 0,
-            'overdue_jobs': pd.DataFrame(),
-            'critical_overdue_jobs': pd.DataFrame()
-        }
-
 
 def create_overdue_jobs_chart(overdue_data, critical_data):
     """Create a bar chart comparing overdue and critical overdue jobs."""
@@ -550,22 +549,89 @@ def create_overdue_jobs_chart(overdue_data, critical_data):
     
     return fig
 
-def create_excel_report(df, overdue_data=None, file_level_overdue_data=None):
-    """Create a formatted Excel report from the DataFrame.
-    
-    Args:
-        df: DataFrame with job data
-        overdue_data: Optional dictionary with overdue jobs data
-        file_level_overdue_data: Optional DataFrame with file-level overdue metrics
-    """
+def create_excel_report(df, analysis_results):
+    """Create a formatted Excel report with job status data."""
     output = BytesIO()
     
-    # Define the exact column order as shown in the image
-    required_columns = [
+    # Create a copy of the dataframe for the report
+    report_df = df.copy()
+    
+    # Add overdue data if available
+    if analysis_results and 'file_results' in analysis_results and analysis_results['file_results']:
+        # Create mapping of file names to their analysis results
+        file_analysis_map = {}
+        for file_result in analysis_results['file_results']:
+            file_name = file_result['file_name']
+            file_analysis_map[file_name] = {
+                'Overdue Jobs': file_result['overdue_jobs_count'],
+                'Critical Overdue': file_result['critical_overdue_jobs_count'],
+                'Overdue %': f"{file_result['overdue_jobs_percentage']}%",
+                'Critical %': f"{file_result['critical_overdue_jobs_percentage']}%"
+            }
+        
+        # Create simplified mapping for easier matching
+        simplified_map = {}
+        for full_path in file_analysis_map:
+            simple_name = os.path.basename(full_path)
+            simplified_map[simple_name] = file_analysis_map[full_path]
+            simplified_map[full_path] = file_analysis_map[full_path]
+        
+        # Add overdue metrics to the dataframe
+        overdue_jobs = []
+        critical_overdue = []
+        overdue_pct = []
+        critical_pct = []
+        
+        for _, row in report_df.iterrows():
+            file_name = row['File Name']
+            simple_name = os.path.basename(file_name)
+            
+            if file_name in simplified_map:
+                overdue_jobs.append(simplified_map[file_name]['Overdue Jobs'])
+                critical_overdue.append(simplified_map[file_name]['Critical Overdue'])
+                overdue_pct.append(simplified_map[file_name]['Overdue %'])
+                critical_pct.append(simplified_map[file_name]['Critical %'])
+            elif simple_name in simplified_map:
+                overdue_jobs.append(simplified_map[simple_name]['Overdue Jobs'])
+                critical_overdue.append(simplified_map[simple_name]['Critical Overdue'])
+                overdue_pct.append(simplified_map[simple_name]['Overdue %'])
+                critical_pct.append(simplified_map[simple_name]['Critical %'])
+            else:
+                # Try partial matching
+                matched = False
+                for analysis_file in file_analysis_map:
+                    if file_name in analysis_file or analysis_file in file_name:
+                        overdue_jobs.append(file_analysis_map[analysis_file]['Overdue Jobs'])
+                        critical_overdue.append(file_analysis_map[analysis_file]['Critical Overdue'])
+                        overdue_pct.append(file_analysis_map[analysis_file]['Overdue %'])
+                        critical_pct.append(file_analysis_map[analysis_file]['Critical %'])
+                        matched = True
+                        break
+                
+                if not matched:
+                    overdue_jobs.append("N/A")
+                    critical_overdue.append("N/A")
+                    overdue_pct.append("N/A")
+                    critical_pct.append("N/A")
+        
+        # Add the overdue metrics to the dataframe
+        report_df['Overdue Jobs'] = overdue_jobs
+        report_df['Critical Overdue'] = critical_overdue
+        report_df['Overdue %'] = overdue_pct
+        report_df['Critical %'] = critical_pct
+    else:
+        # Add placeholders if no overdue analysis is available
+        report_df['Overdue Jobs'] = "N/A"
+        report_df['Critical Overdue'] = "N/A"
+        report_df['Overdue %'] = "N/A"
+        report_df['Critical %'] = "N/A"
+    
+    # Reorder columns for the report
+    column_order = [
         'Date Extracted from File Name',
-        'File Name',
-        'Vessel Name',
-        'Total Count of Jobs',
+        'File Name', 
+        'Vessel Name', 
+        'Total Count of Jobs', 
         'New Job Count',
         'Overdue Jobs',
         'Critical Overdue',
@@ -573,124 +639,44 @@ def create_excel_report(df, overdue_data=None, file_level_overdue_data=None):
         'Critical %'
     ]
     
-    # Filter the DataFrame to include only the required columns that exist
-    available_columns = [col for col in required_columns if col in df.columns]
-    df = df[available_columns]
+    # Only include columns that exist
+    available_columns = [col for col in column_order if col in report_df.columns]
+    report_df = report_df[available_columns]
     
-    # Save DataFrame to Excel
-    df.to_excel(output, index=False)
+    # Write to Excel
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        report_df.to_excel(writer, sheet_name='Job Status Summary', index=False)
+        
+        # Get the workbook and worksheet to apply formatting
+        workbook = writer.book
+        worksheet = writer.sheets['Job Status Summary']
+        
+        # Apply basic formatting
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        
+        # Header formatting
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        # Apply header formatting
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+        
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
     
-    # Load workbook for formatting
     output.seek(0)
-    wb = load_workbook(output)
-    ws = wb.active
-    
-    # Rename the main worksheet
-    ws.title = "Job Status Summary"
-    
-    # Define styles
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    
-    # Cell borders
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    
-    # Format headers
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = header_alignment
-        cell.border = thin_border
-    
-    # Format data cells
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin_border
-    
-    # Define orange fill for conditional formatting (duplicates)
-    orange_fill = PatternFill(start_color="FFB266", end_color="FFB266", fill_type="solid")
-    dxf = DifferentialStyle(fill=orange_fill)
-    
-    # Create rule for duplicate values in Vessel Name column
-    dup_rule = Rule(type="duplicateValues", dxf=dxf, stopIfTrue=False)
-    ws.conditional_formatting.add(f'B2:B{ws.max_row}', dup_rule)
-    
-    # Add red highlighting for both Critical % and Overdue % values > 3%
-    # Find the Critical % and Overdue % columns
-    critical_pct_col = None
-    overdue_pct_col = None
-    
-    for i, cell in enumerate(ws[1]):
-        if cell.value:
-            if 'Critical %' in str(cell.value):
-                critical_pct_col = get_column_letter(i+1)
-            elif 'Overdue %' in str(cell.value):
-                overdue_pct_col = get_column_letter(i+1)
-    
-    # Define red fill for percentage > 3%
-    red_fill = PatternFill(start_color="FF4B4B", end_color="FF4B4B", fill_type="solid")
-    red_font = Font(color="FFFFFF", bold=True)
-    red_style = DifferentialStyle(fill=red_fill, font=red_font)
-    
-    # Apply formatting to Critical % column
-    if critical_pct_col:
-        formula = f'AND(ISNUMBER(VALUE(SUBSTITUTE({critical_pct_col}2,"%",""))),VALUE(SUBSTITUTE({critical_pct_col}2,"%",""))>3)'
-        critical_rule = Rule(type="expression", formula=[formula], dxf=red_style, stopIfTrue=False)
-        ws.conditional_formatting.add(f'{critical_pct_col}2:{critical_pct_col}{ws.max_row}', critical_rule)
-    
-    # Apply formatting to Overdue % column
-    if overdue_pct_col:
-        formula = f'AND(ISNUMBER(VALUE(SUBSTITUTE({overdue_pct_col}2,"%",""))),VALUE(SUBSTITUTE({overdue_pct_col}2,"%",""))>3)'
-        overdue_rule = Rule(type="expression", formula=[formula], dxf=red_style, stopIfTrue=False)
-        ws.conditional_formatting.add(f'{overdue_pct_col}2:{overdue_pct_col}{ws.max_row}', overdue_rule)
-    
-    # Alternating row colors
-    gray_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
-    for row in range(2, ws.max_row + 1, 2):
-        for cell in ws[row]:
-            cell.fill = gray_fill
-    
-    # Add Excel table with formatting - dynamically determine number of columns
-    # Get the maximum column index (letter)
-    max_col = ws.max_column
-    max_col_letter = get_column_letter(max_col)
-    table_ref = f"A1:{max_col_letter}{ws.max_row}"
-    table = Table(displayName="JobSummaryTable", ref=table_ref)
-    style = TableStyleInfo(
-        name="TableStyleMedium2",
-        showFirstColumn=False,
-        showLastColumn=False,
-        showRowStripes=True,
-        showColumnStripes=False
-    )
-    table.tableStyleInfo = style
-    ws.add_table(table)
-    
-    # Adjust column widths
-    for column in ws.columns:
-        max_length = 0
-        column = list(column)
-        for cell in column:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = (max_length + 2)
-        ws.column_dimensions[column[0].column_letter].width = adjusted_width
-    
-    # No additional sheets are being created as per requirements
-    
-    # Save to BytesIO
-    output_formatted = BytesIO()
-    wb.save(output_formatted)
-    output_formatted.seek(0)
-    
-    return output_formatted
+    return output
