@@ -116,13 +116,25 @@ def analyze_overdue_jobs(df):
                 overdue_jobs_count = len(overdue_jobs)
 
                 try:
-                    if 'Unnamed: 0' in file_data.columns:
+                    critical_col_found = None
+                    
+                    # Check all unnamed columns for "C" marker
+                    unnamed_cols = [col for col in file_data.columns if 'unnamed' in str(col).lower()]
+                    for col in unnamed_cols:
+                        # Check if this column contains "C" values
+                        if (file_data[col].astype(str).str.strip().str.lower() == 'c').any():
+                            critical_col_found = col
+                            break
+                    
+                    # If found in unnamed columns, use it
+                    if critical_col_found:
                         critical_overdue_jobs = file_data[
-                            (file_data['Unnamed: 0'].astype(str).str.strip().str.lower() == 'c') &
+                            (file_data[critical_col_found].astype(str).str.strip().str.lower() == 'c') &
                             (file_data['Calculated Due Date'] <= effective_date) &
                             (file_data['Job Status'].astype(str).str.strip().str.lower().isin(['pending', 'in progress on board']))
                         ]
                     else:
+                        # Try to find a named critical/priority column
                         critical_col = next((col for col in file_data.columns if 'critical' in col.lower() or 'priority' in col.lower()), None)
                         if critical_col:
                             critical_overdue_jobs = file_data[
